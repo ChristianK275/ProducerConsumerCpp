@@ -2,11 +2,11 @@
 #include <array>
 #include <atomic>
 
-template<typename T, unsigned LogSize=8>
+template<typename T, unsigned Size>
 class CProducerConsumerQueue
 {
 public:
-	static const unsigned sz = 1 << LogSize;
+	static const unsigned size = Size;
 	
 	CProducerConsumerQueue() = default;
 
@@ -14,10 +14,9 @@ public:
 	{
 		/* Single writer*/
 		unsigned write = m_WritePos.load();
-		unsigned new_write = (write + 1) & mask();
-		unsigned read = m_ReadPos.load();
+		unsigned new_write = Increment(write);
 
-		if (new_write == read)
+		if (new_write == m_ReadPos.load())
 			return false;
 		
 		m_Data[write] = elem;
@@ -28,35 +27,35 @@ public:
 
 	bool Dequeue(T& out) noexcept
 	{
-		for(;;)
+
+		/* critical section, increment the read pos */
+		unsigned write = m_WritePos.load();
+		
+		static bool released = false;
+		while (m_ConsumerLock.compare_exchange_strong(released, true)) {}
+		unsigned read = m_ReadPos.load();
+
+		bool not_empty = read != write;
+		if(not_empty)
 		{
-			unsigned write = m_WritePos.load();
-			unsigned read = m_ReadPos.load();
-
-			/* check if there's somthing in queue */
-			if (write == read)
-				return false;
-
 			out = m_Data[read];
-
-			unsigned new_read = (read + 1) & mask();
-			/* keep going until only one thread reads the element */
-			if (m_ReadPos.compare_exchange_strong(read, new_read))
-				return true; 
+			unsigned new_read = Increment(read);
+			m_ReadPos.store(new_read);
 		}
+
+		m_ConsumerLock.store(released);
+		return not_empty;
 	}
 
 private:
-	static constexpr unsigned mask()
+
+	static unsigned Increment(unsigned i) noexcept
 	{
-		unsigned out = 0;
-		unsigned i = LogSize;
-		while (i-- > 0U)
-			out |= 1U << i;
-		return out;
+		return ++i == size ? 0 : i;
 	}
 
-	std::atomic<unsigned> m_WritePos;
-	std::atomic<unsigned> m_ReadPos;
-	std::array<T, sz> m_Data;
+	std::array<T, size> m_Data;
+	std::atomic<unsigned> m_WritePos{ 0 };
+	std::atomic<unsigned> m_ReadPos{ 0 };
+	std::atomic<bool> m_ConsumerLock{ false };
 };

@@ -5,7 +5,7 @@
 
 static bool quit = false;
 
-CProducerConsumerQueue<int*, 4> q;
+CProducerConsumerQueue<int*, 32> q;
 std::mutex print_mutex;
 
 template<typename ...Args>
@@ -25,7 +25,10 @@ void Producer()
 		if (!p)
 			p = new int(i++);
 		if (q.Enqueue(p))
+		{
+			//PrintSynced("Enqueue %i\n", i);
 			p = nullptr;
+		}
 	}
 }
 
@@ -35,14 +38,7 @@ void Consumer(size_t id)
 	{
 		int* i;
 		if(q.Dequeue(i))
-		{
-			*i++;
 			delete i;
-		}
-
-
-		//if (q.Dequeue(i))
-			//PrintSynced("%i: Dequeue %i\n", id, i);
 	}
 }
 
@@ -50,7 +46,7 @@ int main()
 {
 	std::thread p1(Producer);
 
-	std::array<std::thread, 2> consumers;
+	std::array<std::thread, 3> consumers;
 	size_t thread_id = 0;
 	for(size_t i = 0; i < consumers.size(); ++i)
 		consumers[i] = std::thread(Consumer, thread_id++);
